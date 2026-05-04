@@ -101,7 +101,9 @@ transcript-qwen-asr VIDEO [VIDEO ...]
   --prompt STR             free-form context biasing (system prompt)
   --glossary PATH          newline-separated technical-terms file
   --language LANG          force language; omit for auto-detection (handles IT/EN mixing)
-  --batch-size N           default: 4
+  --beam-size N            beam-search width (default: 4; 1 = greedy)
+  --preprocess             apply a conservative ffmpeg filter chain before ASR (off by default)
+  --batch-size N           default: 1 (VRAM scales with batch-size × beam-size)
   --device DEV             default: cuda:0
   --dtype {bf16,fp16,fp32} default: bf16
   -v, --verbose
@@ -151,8 +153,10 @@ If `--prompt` is also given, the free-form prompt comes first, then a blank line
 
 - **`--srt` is significantly slower** than `--txt` / `--json`. The forced aligner forces the model into 180-second chunks (vs. 1200 s for ASR-only), so a 1-hour video produces ~6× more model invocations. Italian and English are both supported by the aligner.
 - **Mixed-language video** (IT + EN switching mid-talk) works automatically; omit `--language`. The detected language is reported in the JSON output as a comma-separated string, e.g. `"Italian,English"`.
-- **CUDA OOM**: re-run with `--model 0.6B`, lower `--batch-size`, or `--dtype fp16`.
+- **CUDA OOM**: re-run with `--model 0.6B`, lower `--beam-size`, lower `--batch-size`, or `--dtype fp16`. The decoder allocates KV cache proportional to `batch-size × beam-size`, so the two flags together set the VRAM ceiling.
+- **Quality vs. speed**: `--beam-size 4` (default) explores four hypothesis sequences in parallel during decoding, which reduces hallucinations and improves rare/technical term recognition compared to greedy decoding (`--beam-size 1`). It costs roughly 1.5–2× the wall time on a 1.7B model. `--preprocess` adds a light ffmpeg cleanup (high-pass at 80 Hz, low-pass at 7.5 kHz, dynamic normalization) — almost free in time and helpful when the source has uneven volume or low-frequency rumble.
 - **Context biasing is a soft hint**, not a guarantee. The model is more likely to produce the desired spelling but may still err on rare or out-of-distribution terms.
+- **Long-form single-language content is not the sweet spot.** The underlying `qwen-asr` wrapper caps generation at `max_new_tokens=512` and chunks audio at 1200 s. On dense Italian speech (~150 wpm), this means roughly **85% of every full chunk is silently dropped** because the audio carries far more tokens than the cap allows. In failure mode the model can also leak the system prompt verbatim into the transcript. For long meetings or talks in a single language (especially Italian), a Whisper-large-v3 setup with VAD will produce better and more complete transcripts. Qwen3-ASR-1.7B remains useful for short clips, heavy code-switching, and languages where Whisper is weaker.
 
 ## Architecture
 

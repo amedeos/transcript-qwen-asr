@@ -28,7 +28,8 @@ def load(
     want_srt: bool,
     dtype: str = "bf16",
     device: str = "cuda:0",
-    batch_size: int = 4,
+    batch_size: int = 1,
+    beam_size: int = 4,
 ) -> Any:
     """Load Qwen3ASRModel (and forced aligner if want_srt)."""
     from qwen_asr import Qwen3ASRModel
@@ -43,6 +44,20 @@ def load(
         dtype=DTYPES[dtype],
         device_map=device,
     )
+
+    if beam_size > 1:
+        gen = model.model.generation_config
+        gen.num_beams = beam_size
+        gen.do_sample = False
+        gen.early_stopping = True
+        gen.no_repeat_ngram_size = 3
+        gen.length_penalty = 1.0
+        gen.repetition_penalty = 1.1
+        log.info(
+            "Beam search enabled (num_beams=%d, no_repeat_ngram_size=3, repetition_penalty=1.1).",
+            beam_size,
+        )
+
     return model
 
 
@@ -66,6 +81,6 @@ def run(
     except torch.cuda.OutOfMemoryError as e:
         raise RuntimeError(
             "CUDA out of memory during transcription. Retry with `--model 0.6B`, "
-            "lower `--batch-size`, or `--dtype fp16`."
+            "lower `--beam-size`, lower `--batch-size`, or `--dtype fp16`."
         ) from e
     return results[0]

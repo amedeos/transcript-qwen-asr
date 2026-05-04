@@ -41,7 +41,22 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--language", default=None,
                    help="Force a single language (e.g. 'English', 'Italian'). "
                         "Omit for per-chunk auto-detection (handles IT/EN mixing).")
-    p.add_argument("--batch-size", type=int, default=4, help="ASR inner batch size (default: 4).")
+    p.add_argument(
+        "--beam-size", type=int, default=4,
+        help="Beam-search width during decoding (default: 4). Use 1 for greedy. "
+             "Higher values reduce hallucinations and improve recognition of "
+             "rare/technical terms at the cost of decoding time and VRAM "
+             "(scales with --batch-size).",
+    )
+    p.add_argument(
+        "--preprocess", action="store_true",
+        help="Apply a conservative ffmpeg filter chain to the input audio "
+             "(highpass 80 Hz, lowpass 7.5 kHz, dynamic normalization) before "
+             "transcription. Off by default.",
+    )
+    p.add_argument("--batch-size", type=int, default=1,
+                   help="ASR inner batch size (default: 1). VRAM scales with "
+                        "--batch-size × --beam-size; raise only if you have headroom.")
     p.add_argument("--device", default="cuda:0", help="PyTorch device (default: cuda:0).")
     p.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16",
                    help="Model dtype (default: bf16).")
@@ -100,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
             dtype=args.dtype,
             device=args.device,
             batch_size=args.batch_size,
+            beam_size=args.beam_size,
         )
 
     multi = len(args.videos) > 1
@@ -108,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             console.print(f"[bold cyan]→ {video}[/bold cyan]")
             with console.status(f"Decoding audio from {video.name}…"):
-                pcm = audio.extract_pcm16k_mono(video)
+                pcm = audio.extract_pcm16k_mono(video, preprocess=args.preprocess)
             duration_min = len(pcm) / audio.SAMPLE_RATE / 60.0
             log.info("Decoded %.1f min of audio.", duration_min)
 

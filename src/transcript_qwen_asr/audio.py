@@ -10,6 +10,8 @@ import numpy as np
 
 SAMPLE_RATE = 16_000
 
+PREPROCESS_FILTER = "highpass=f=80,lowpass=f=7500,dynaudnorm=p=0.95:m=10:s=12"
+
 
 def ensure_ffmpeg() -> None:
     if shutil.which("ffmpeg") is None:
@@ -19,8 +21,13 @@ def ensure_ffmpeg() -> None:
         )
 
 
-def extract_pcm16k_mono(media: Path) -> np.ndarray:
-    """Decode `media` to 16 kHz mono float32 PCM in [-1, 1]."""
+def extract_pcm16k_mono(media: Path, preprocess: bool = False) -> np.ndarray:
+    """Decode `media` to 16 kHz mono float32 PCM in [-1, 1].
+
+    When ``preprocess`` is True, a conservative ffmpeg filter chain is
+    applied before resampling: high-pass at 80 Hz, low-pass at 7.5 kHz,
+    and dynamic loudness normalization.
+    """
     if not media.exists():
         raise FileNotFoundError(media)
 
@@ -29,6 +36,10 @@ def extract_pcm16k_mono(media: Path) -> np.ndarray:
         "-nostdin",
         "-loglevel", "error",
         "-i", str(media),
+    ]
+    if preprocess:
+        cmd += ["-af", PREPROCESS_FILTER]
+    cmd += [
         "-f", "s16le",
         "-acodec", "pcm_s16le",
         "-ac", "1",
